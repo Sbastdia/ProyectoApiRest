@@ -7,7 +7,14 @@ from .serializers import UserSerializer
 from rest_framework import generics, status
 
 
+class ProfileView(generics.RetrieveUpdateAPIView):
+    serializer_class = UserSerializer
+    http_method_names = ['get', 'patch']
 
+
+    def get_object(self):
+        if self.request.user.is_authenticated:
+            return self.request.user
 class LoginView(APIView):
     def post(self, request):
         # Recuperamos las credenciales y autenticamos al usuario

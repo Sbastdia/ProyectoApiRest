@@ -55,6 +55,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'rest_framework',
     'django_rest_passwordreset',
+    'django_filters',
 
     #Django custom apps
     "authentication",

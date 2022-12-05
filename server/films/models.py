@@ -1,6 +1,10 @@
 import uuid
 from django.db import models
 from django.utils.text import slugify
+from django.conf import settings
+from django.core.validators import MaxValueValidator
+from django.db.models import Sum
+from django.db.models.signals import post_save
 
 
 class Film(models.Model):
@@ -27,6 +31,10 @@ class Film(models.Model):
     image_wallpaper = models.ImageField(
         upload_to=path_to_film, null=True, blank=True, verbose_name="Wallpaper")
 
+    # Estadisticas actualizadas con señales
+    favorites = models.IntegerField( default=0, verbose_name="favoritos")
+    average_note = models.FloatField( default=0.0, verbose_name="nota media", validators=[MaxValueValidator(10.0)])
+
     class Meta:
         verbose_name = "Película"
         ordering = ['title']
@@ -51,3 +59,45 @@ class FilmGenre(models.Model):
     def save(self, *args, **kwargs):
         self.slug = slugify(self.name)
         super(FilmGenre, self).save(*args, **kwargs)
+
+class FilmUser(models.Model):
+
+    STATUS_CHOICES = (
+        (0, "Sin estado"),
+        (1, "Vista"),
+        (2, "Quiero verla"))
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    film = models.ForeignKey(Film, on_delete=models.CASCADE)
+    # Se podría hacer en tres modelos separados para que sea más eficiente
+    # pero a nivel de desarrollo habría que hacer lo mismo tres veces
+    state = models.PositiveSmallIntegerField(
+        choices=STATUS_CHOICES, default=0) # Al crearse sin estado se borra
+    favorite = models.BooleanField(
+            default=False)
+    note = models.PositiveSmallIntegerField( null=True, validators=[MaxValueValidator(10)])
+    review = models.TextField(null=True)
+    class Meta:
+        unique_together = ['film', 'user']
+        ordering = ['film__title']
+
+
+def update_film_stats(sender, instance, **kwargs):
+    # Actualizamos los favoritos contando los favoritos de esa película
+    count_favorites = FilmUser.objects.filter( film=instance.film, favorite=True).count()
+    instance.film.favorites = count_favorites
+    # Actualizamos la nota recuperando el número de notas y haciendo la media
+    notes = FilmUser.objects.filter( film=instance.film).exclude(note__isnull=True)
+    count_notes = notes.count()
+    sum_notes = notes.aggregate(Sum('note')).get('note__sum') # Intentamos hacer la media con dos decimales usando un try # Fallará si sum_notes es None como count_notes es 0
+    # Esto sucede las primeras veces porque aún no hay notas establecidas
+    try:
+        instance.film.average_note = round(sum_notes/count_notes, 2)
+    except:
+        pass
+    # Guardamos la película
+    instance.film.save()
+    # en el post delete se pasa la copia de la instance que ya no existe
+post_save.connect(update_film_stats, sender=FilmUser)
+
+
